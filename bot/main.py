@@ -13,7 +13,7 @@ django.setup()
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.session.aiohttp import AiohttpSession
-from aiogram.filters import CommandStart
+from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -36,6 +36,27 @@ class LeadForm(StatesGroup):
 async def get_business() -> Business | None:
     """Пока берём первый активный бизнес. Позже сделаем по ссылке."""
     return await Business.objects.filter(is_active=True).afirst()
+
+@dp.message(Command('admin'))
+async def cmd_admin(message: Message):
+    """Привязывает владельца к бизнесу. Работает только для ADMIN_TELEGRAM_ID."""
+    if message.from_user.id != settings.ADMIN_TELEGRAM_ID:
+        await message.answer('У вас нет доступа к этой команде.')
+        return
+
+    business = await get_business()
+    if not business:
+        await message.answer('Нет активного бизнеса.')
+        return
+
+    business.telegram_id = message.from_user.id
+    await business.asave()
+
+    await message.answer(
+        f'Готово. Теперь уведомления о новых заявках будут приходить сюда.\n'
+        f'Бизнес: {business.name}\n'
+        f'Ваш Telegram ID: {message.from_user.id}'
+    )
 
 @dp.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
@@ -79,11 +100,12 @@ async def process_answer(message: Message, state: FSMContext):
 
     index += 1
 
+    business = await Business.objects.aget(id=data['business_id'])
+
     #Если вопросы закончились - сохраняем заявку
     if index >= len(questions):
-        business = await Business.objects.aget(id=data['business_id'])
-
-        lead = await Lead.objects.acreate(
+        
+        await Lead.objects.acreate(
             business=business,
             client_telegram_id=message.from_user.id,
             client_username=message.from_user.username or '',
@@ -93,6 +115,17 @@ async def process_answer(message: Message, state: FSMContext):
             message=answers.get('message', ''),
             budget=answers.get('budget', '')
         )
+
+        if business.telegram_id:
+            await bot.send_message(
+                business.telegram_id,
+                f'🔔 Новая заявка!\n\n'
+                f'Имя: {answers.get("name", "—")}\n'
+                f'Телефон: {answers.get("phone", "—")}\n'
+                f'Услуга: {answers.get("service", "—")}\n'
+                f'Комментарий: {answers.get("message", "—")}\n\n'
+                f'Клиент: @{message.from_user.username or "без_username"}'
+            )
 
         await message.answer(
             'Спасибо! Ваша заявка принята. Мы свяжемся с вами в ближайшее время.'
