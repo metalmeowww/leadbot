@@ -18,7 +18,12 @@ from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import Message
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 from django.conf import settings
 
 from leads.models import Business, Lead
@@ -59,6 +64,11 @@ def validate_answer(field_name: str, text: str) -> tuple[bool, str]:
             return False, 'Имя не может состоять только из цифр.'
     return True, ''
 
+def cancel_keyboard() -> InlineKeyboardMarkup:
+    """Кнопка <<Отмена>> под вопросом."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text='❌ Отмена', callback_data='cancel')]
+    ])
 @dp.message(Command('admin'))
 async def cmd_admin(message: Message):
     """Привязывает владельца к бизнесу. Работает только для ADMIN_TELEGRAM_ID."""
@@ -107,7 +117,7 @@ async def cmd_start(message: Message, state: FSMContext):
 
     # Отправляем первое приветствие и первый вопрос
     await message.answer(business.greeting)
-    await message.answer(questions[0]['text'])
+    await message.answer(questions[0]['text'], reply_markup=cancel_keyboard())
 
 @dp.message(Command('cancel'))
 async def cmd_cancel(message: Message, state: FSMContext):
@@ -121,6 +131,14 @@ async def cmd_cancel(message: Message, state: FSMContext):
     await message.answer(
         'Опрос отменён. Чтобы начать заново, напишите /start'
     )
+
+@dp.callback_query(F.data == 'cancel')
+async def cb_cancel(callback: CallbackQuery, state: FSMContext):
+    """Обрабатывает нажатие inline-кнопки <<Отмена>>."""
+    await state.clear()
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.message.answer('Опрос отменён. Чтобы начать заново, напишите /start.')
+    await callback.answer()
 
 @dp.message(LeadForm.answering, F.text)
 async def process_answer(message: Message, state: FSMContext):
@@ -177,7 +195,7 @@ async def process_answer(message: Message, state: FSMContext):
 
     # Иначе - сохраняем прогресс и задаём следующий вопрос
     await state.update_data(index=index, answers=answers)
-    await message.answer(questions[index]['text'])
+    await message.answer(questions[index]['text'], reply_markup=cancel_keyboard())
 
 async def main():
     print('Бот запущен. Ctrl+C для остановки.')
