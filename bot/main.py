@@ -87,6 +87,19 @@ async def cmd_start(message: Message, state: FSMContext):
     await message.answer(business.greeting)
     await message.answer(questions[0]['text'])
 
+@dp.message(Command('cancel'))
+async def cmd_cancel(message: Message, state: FSMContext):
+    """Отменяет текущий опрос."""
+    current = await state.get_state()
+    if current is None:
+        await message.answer('Нечего отменять.')
+        return
+
+    await state.clear()
+    await message.answer(
+        'Опрос отменён. Чтобы начать заново, напишите /start'
+    )
+
 @dp.message(LeadForm.answering, F.text)
 async def process_answer(message: Message, state: FSMContext):
     data = await state.get_data()
