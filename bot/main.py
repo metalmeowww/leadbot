@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -36,6 +37,27 @@ class LeadForm(StatesGroup):
 async def get_business() -> Business | None:
     """Пока берём первый активный бизнес. Позже сделаем по ссылке."""
     return await Business.objects.filter(is_active=True).afirst()
+
+
+def validate_phone(text: str) -> bool:
+    """Проверяет, что телефон содержит только цифры и допустимые символы, и минимум 10 цифр"""
+    cleaned = re.sub(r'[\s\-\(\)\+]', '', text)
+    if not cleaned.isdigit():
+        return False
+    return len(cleaned) >= 10
+
+
+def validate_answer(field_name: str, text: str) -> tuple[bool, str]:
+    """Возвращает (валидно, сообщение_об_ошибке)."""
+    if field_name == 'phone':
+        if not validate_phone(text):
+            return False, 'Похоже, это не телефон. Введите номер в формате +7 900 123-45-67.'
+    if field_name == 'name':
+        if len(text) > 100:
+            return False, 'Слишком длинное имя. Максимум 100 символов.'
+        if text.strip().isdigit():
+            return False, 'Имя не может состоять только из цифр.'
+    return True, ''
 
 @dp.message(Command('admin'))
 async def cmd_admin(message: Message):
@@ -109,6 +131,13 @@ async def process_answer(message: Message, state: FSMContext):
 
     # Сохраняем ответ на текущий вопрос
     current = questions[index]
+    is_valid, error_message = validate_answer(current['field_name'], message.text)
+
+    if not is_valid:
+        await message.answer(error_message)
+        return
+
+    # Сохраняем ответ
     answers[current['field_name']] = message.text
 
     index += 1
