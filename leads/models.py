@@ -38,6 +38,13 @@ class Question(models.Model):
     order = models.PositiveIntegerField('Порядок', default=0)
     is_required = models.BooleanField('Обязательный', default=True)
 
+    options = models.JSONField(
+        'Варианты ответа',
+        default=list,
+        blank=True,
+        help_text='Список вариантов, например: ["Стрижка", "Бритьё", "Окрашивание"]. Пусто = текстовый ввод.'
+    )
+
     class Meta:
         ordering = ['order']
         verbose_name = 'Вопрос'

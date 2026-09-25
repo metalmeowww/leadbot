@@ -10,6 +10,7 @@ class QuestionInline(admin.TabularInline):
     """Вопросы редактируются прямо внутри карточки бизнеса"""
     model = Question
     extra = 1
+    fields = ('order', 'text', 'field_name', 'options', 'is_required')
 
 @admin.register(Business)
 class BusinessAdmin(admin.ModelAdmin):
@@ -23,6 +24,8 @@ class QuestionsAdmin(admin.ModelAdmin):
     list_display = ('business', 'order', 'text', 'field_name', 'is_required')
     list_filter = ('business', 'is_required')
     ordering = ('business', 'order')
+    fields = ('business', 'order', 'text', 'field_name', 'options', 'is_required')
+
 
 @admin.register(Lead)
 class LeadAdmin(admin.ModelAdmin):

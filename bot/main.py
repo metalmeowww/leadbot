@@ -19,10 +19,9 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (
-    CallbackQuery,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
+    KeyboardButton,
     Message,
+    ReplyKeyboardMarkup,
 )
 from django.conf import settings
 
@@ -39,10 +38,30 @@ class LeadForm(StatesGroup):
     """Состояния опроса. Используем одно динамическое состояние."""
     answering = State()
 
-async def get_business() -> Business | None:
-    """Пока берём первый активный бизнес. Позже сделаем по ссылке."""
-    return await Business.objects.filter(is_active=True).afirst()
+# Клавиатуры
 
+def main_menu() -> ReplyKeyboardMarkup:
+    """Главное меню внизу экрана."""
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text='📝 Записаться')],
+            [KeyboardButton(text='ℹ️ О нас'), KeyboardButton(text='📞 Контакты')],
+        ],
+        resize_keyboard=True,
+    )
+
+def question_keyboard(question: dict) -> ReplyKeyboardMarkup | None:
+    """Если у вопроса есть варианты - показать их кнопками."""
+    options = question.get('options') or []
+    if not options:
+        return None
+    buttons = [[KeyboardButton(text=opt)] for opt in options]
+    buttons.append([KeyboardButton(text='❌ Отмена')])
+    return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
+
+# Валидация
+
+SKIP_WORDS = {'-', 'нет', 'пропустить', 'skip', 'no', 'нет комментариев'}
 
 def validate_phone(text: str) -> bool:
     """Проверяет, что телефон содержит только цифры и допустимые символы, и минимум 10 цифр"""
@@ -51,9 +70,10 @@ def validate_phone(text: str) -> bool:
         return False
     return len(cleaned) >= 10
 
-
-def validate_answer(field_name: str, text: str) -> tuple[bool, str]:
+def validate_answer(field_name: str, text: str, is_required: bool) -> tuple[bool, str]:
     """Возвращает (валидно, сообщение_об_ошибке)."""
+    if not is_required and text.strip().lower() in SKIP_WORDS:
+        return True, ''
     if field_name == 'phone':
         if not validate_phone(text):
             return False, 'Похоже, это не телефон. Введите номер в формате +7 900 123-45-67.'
@@ -64,11 +84,75 @@ def validate_answer(field_name: str, text: str) -> tuple[bool, str]:
             return False, 'Имя не может состоять только из цифр.'
     return True, ''
 
-def cancel_keyboard() -> InlineKeyboardMarkup:
-    """Кнопка <<Отмена>> под вопросом."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text='❌ Отмена', callback_data='cancel')]
-    ])
+# Хелперы
+async def get_business() -> Business | None:
+    """Пока берём первый активный бизнес. Позже сделаем по ссылке."""
+    return await Business.objects.filter(is_active=True).afirst()
+
+async def ask_question(message: Message, question: dict):
+    """Отправляет вопрос. Если есть варианты - с кнопками."""
+    kb = question_keyboard(question)
+    if kb:
+        await message.answer(question['text'], reply_markup=kb)
+    else:
+        await message.answer(question['text'])
+
+async def start_survey(message: Message, state: FSMContext):
+    """Запускает опрос: собирает вопросы и задаёт первый."""
+    business = await get_business()
+    if not business:
+        await message.answer('Извините, бот временно не настроен.')
+        return
+
+    questions = []
+    async for q in business.questions.all():
+        questions.append({
+            'id': q.id,
+            'text': q.text,
+            'field_name': q.field_name,
+            'is_required': q.is_required,
+            'options': q.options or [],
+        })
+
+    if not questions:
+        await message.answer('Бот не настроен: нет вопросов.')
+        return
+
+    await state.set_state(LeadForm.answering)
+    await state.update_data(
+        business_id=business.id,
+        questions=questions,
+        index=0,
+        answers={},
+    )
+
+    await message.answer(business.greeting)
+    await ask_question(message, questions[0])
+
+# Команды и кнопки
+
+@dp.message(CommandStart())
+async def cmd_start(message: Message, state: FSMContext):
+    """Приветствие + главное меню."""
+    await state.clear()
+    await message.answer(
+        f'Здравствуйте, {message.from_user.first_name}!\n'
+        f'Нажмите кнопку ниже, чтобы записаться.',
+        reply_markup=main_menu(),
+    )
+
+@dp.message(F.text == '📝 Записаться')
+async def btn_signup(message: Message, state: FSMContext):
+    await start_survey(message, state)
+
+@dp.message(F.text == 'ℹ️ О нас')
+async def btn_about(message: Message):
+    await message.answer('Информация о студии будет здесь.')
+
+@dp.message(F.text == '📞 Контакты')
+async def btn_contacts(message: Message):
+    await message.answer('Контакты будут здесь.')
+
 @dp.message(Command('admin'))
 async def cmd_admin(message: Message):
     """Привязывает владельца к бизнесу. Работает только для ADMIN_TELEGRAM_ID."""
@@ -90,55 +174,17 @@ async def cmd_admin(message: Message):
         f'Ваш Telegram ID: {message.from_user.id}'
     )
 
-@dp.message(CommandStart())
-async def cmd_start(message: Message, state: FSMContext):
-    business = await get_business()
-    if not business:
-        await message.answer('Извините, бот временно не настроен.')
-        return
-
-    # Получаем вопросы полученные по порядку
-    questions = []
-    async for q in business.questions.all():
-        questions.append({'id': q.id, 'text': q.text, 'field_name': q.field_name})
-
-    if not questions:
-        await message.answer('Бот не настроен: нет вопросов.')
-        return
-
-    # Сохраняем в состояние список вопросов и индекс текущего
-    await state.set_state(LeadForm.answering)
-    await state.update_data(
-        business_id=business.id,
-        questions=questions,
-        index=0,
-        answers={},
-    )
-
-    # Отправляем первое приветствие и первый вопрос
-    await message.answer(business.greeting)
-    await message.answer(questions[0]['text'], reply_markup=cancel_keyboard())
-
 @dp.message(Command('cancel'))
 async def cmd_cancel(message: Message, state: FSMContext):
-    """Отменяет текущий опрос."""
-    current = await state.get_state()
-    if current is None:
-        await message.answer('Нечего отменять.')
-        return
-
     await state.clear()
-    await message.answer(
-        'Опрос отменён. Чтобы начать заново, напишите /start'
-    )
+    await message.answer('Опрос отменён.', reply_markup=main_menu())
 
-@dp.callback_query(F.data == 'cancel')
-async def cb_cancel(callback: CallbackQuery, state: FSMContext):
-    """Обрабатывает нажатие inline-кнопки <<Отмена>>."""
+@dp.message(F.text == '❌ Отмена')
+async def btn_cancel(message: Message, state: FSMContext):
     await state.clear()
-    await callback.message.edit_reply_markup(reply_markup=None)
-    await callback.message.answer('Опрос отменён. Чтобы начать заново, напишите /start.')
-    await callback.answer()
+    await message.answer('Опрос отменён.', reply_markup=main_menu())
+
+# Опрос
 
 @dp.message(LeadForm.answering, F.text)
 async def process_answer(message: Message, state: FSMContext):
@@ -149,22 +195,24 @@ async def process_answer(message: Message, state: FSMContext):
 
     # Сохраняем ответ на текущий вопрос
     current = questions[index]
-    is_valid, error_message = validate_answer(current['field_name'], message.text)
+    is_valid, error_message = validate_answer(
+        current['field_name'], message.text, current['is_required']
+    )
 
     if not is_valid:
         await message.answer(error_message)
         return
 
-    # Сохраняем ответ
-    answers[current['field_name']] = message.text
+    if not current['is_required'] and message.text.strip().lower() in SKIP_WORDS:
+        answers[current['field_name']] = ''
+    else:
+        answers[current['field_name']] = message.text
 
     index += 1
 
     business = await Business.objects.aget(id=data['business_id'])
 
-    #Если вопросы закончились - сохраняем заявку
     if index >= len(questions):
-        
         await Lead.objects.acreate(
             business=business,
             client_telegram_id=message.from_user.id,
@@ -173,7 +221,7 @@ async def process_answer(message: Message, state: FSMContext):
             phone=answers.get('phone', ''),
             service=answers.get('service', ''),
             message=answers.get('message', ''),
-            budget=answers.get('budget', '')
+            budget=answers.get('budget', ''),
         )
 
         if business.telegram_id:
@@ -187,15 +235,15 @@ async def process_answer(message: Message, state: FSMContext):
                 f'Клиент: @{message.from_user.username or "без_username"}'
             )
 
-        await message.answer(
-            'Спасибо! Ваша заявка принята. Мы свяжемся с вами в ближайшее время.'
-        )
         await state.clear()
+        await message.answer(
+            '✅ Спасибо! Ваша заявка принята. Мы свяжемся с вами в ближайшее время.',
+            reply_markup=main_menu(),
+        )
         return
 
-    # Иначе - сохраняем прогресс и задаём следующий вопрос
     await state.update_data(index=index, answers=answers)
-    await message.answer(questions[index]['text'], reply_markup=cancel_keyboard())
+    await ask_question(message, questions[index])
 
 async def main():
     print('Бот запущен. Ctrl+C для остановки.')
