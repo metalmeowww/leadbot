@@ -14,6 +14,24 @@ class Business(models.Model):
         'Приветствие бота',
         default='Здравствуйте! Ответьте на несколько вопросов, и мы свяжемся с вами.'
     )
+    about_text = models.TextField(
+        'О нас',
+        blank=True,
+        default='Информация о студии скоро появится.',
+        help_text='Текст, который показывается по кнопке «О нас».'
+    )
+    contacts_text = models.TextField(
+        'Контакты',
+        blank=True,
+        default='Телефон: ...\nАдрес: ...\nTelegram: @...',
+        help_text='Текст, который показывается по кнопке «Контакты».'
+    )
+    thank_you_text = models.TextField(
+        'Сообщение после заявки',
+        blank=True,
+        default='✅ Спасибо! Ваша заявка принята. Мы свяжемся с вами в ближайшее время.',
+        help_text='Что бот говорит клиенту после завершения опроса.'
+    )
     is_active = models.BooleanField('Активен', default=True)
     created_at = models.DateTimeField('Создан', auto_now_add=True)
 

@@ -147,11 +147,19 @@ async def btn_signup(message: Message, state: FSMContext):
 
 @dp.message(F.text == 'ℹ️ О нас')
 async def btn_about(message: Message):
-    await message.answer('Информация о студии будет здесь.')
+    business = await get_business()
+    if not business:
+        await message.answer('Информация временно недоступна.')
+        return
+    await message.answer(business.about_text)
 
 @dp.message(F.text == '📞 Контакты')
 async def btn_contacts(message: Message):
-    await message.answer('Контакты будут здесь.')
+    business = await get_business()
+    if not business:
+        await message.answer('Контакты временно недоступны.')
+        return
+    await message.answer(business.contacts_text)
 
 @dp.message(Command('admin'))
 async def cmd_admin(message: Message):
@@ -237,7 +245,7 @@ async def process_answer(message: Message, state: FSMContext):
 
         await state.clear()
         await message.answer(
-            '✅ Спасибо! Ваша заявка принята. Мы свяжемся с вами в ближайшее время.',
+            business.thank_you_text,
             reply_markup=main_menu(),
         )
         return

@@ -18,6 +18,10 @@ class BusinessAdmin(admin.ModelAdmin):
     list_filter = ('is_active',)
     search_fields = ('name',)
     inlines = [QuestionInline]
+    fields = (
+        'user', 'name', 'telegram_id', 'is_active',
+        'greeting', 'about_text', 'contacts_text', 'thank_you_text',
+    )
 
 @admin.register(Question)
 class QuestionsAdmin(admin.ModelAdmin):
