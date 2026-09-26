@@ -13,10 +13,11 @@ import django
 django.setup()
 
 from aiogram import Bot, Dispatcher, F
-from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.client.telegram import TelegramAPIServer
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (
     KeyboardButton,
@@ -29,8 +30,8 @@ from leads.models import Business, Lead
 
 logging.basicConfig(level=logging.INFO)
 
-
-session = AiohttpSession(proxy='socks5://127.0.0.1:12334')
+API_SERVER = TelegramAPIServer.from_base('https://tg-proxy.flafy3290.workers.dev')
+session = AiohttpSession(api=API_SERVER)
 bot = Bot(token=settings.BOT_TOKEN, session=session)
 dp = Dispatcher(storage=MemoryStorage())
 
